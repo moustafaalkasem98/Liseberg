@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Liseberg Live Navigator – Halloween Edition</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #1a1d27;
+      --accent: #ff6b00;
+      --green: #00b862;
+      --text: #f3f4f6;
+      --muted: #9ca3af;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body, html {
+      width: 100%;
+      height: 100dvh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: linear-gradient(90deg, #161922, #25161b);
+      padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+      border-bottom: 1px solid #2e3244;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 1000;
+    }
+    .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #f59e0b; display: inline-block; }
+    .status-dot.live { background: #10b981; box-shadow: 0 0 8px #10b981; }
+    .top-actions { display: flex; gap: 6px; }
+    .btn {
+      background: #262b3d;
+      color: #fff;
+      border: 1px solid #3b4259;
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn.primary { background: var(--accent); border-color: #ff8533; color: #000; }
+    .btn.active { background: var(--green); border-color: #10b981; color: #000; }
+
+    /* Turn-by-turn banner */
+    #nav-banner {
+      display: none;
+      background: #14221b;
+      border-bottom: 2px solid var(--green);
+      padding: 10px 12px;
+      z-index: 1000;
+    }
+    .nav-main { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .nav-step { font-size: 15px; font-weight: 700; color: #fff; }
+    .nav-sub { font-size: 12px; color: #a7f3d0; margin-top: 2px; }
+    .nav-metrics { text-align: right; min-width: 75px; }
+    .nav-dist { font-size: 16px; font-weight: 800; color: #34d399; }
+    .nav-eta { font-size: 11px; color: #9ca3af; }
+
+    /* Map */
+    #map-wrap { position: relative; flex: 1; width: 100%; }
+    #map { width: 100%; height: 100%; }
+    .map-floating {
+      position: absolute;
+      right: 10px;
+      top: 10px;
+      z-index: 800;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    /* Bottom Drawer */
+    #drawer {
+      background: var(--card);
+      border-top: 1px solid #2e3244;
+      height: 38dvh;
+      display: flex;
+      flex-direction: column;
+      padding-bottom: env(safe-area-inset-bottom);
+      z-index: 1000;
+    }
+    .filters {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding: 8px 10px;
+      border-bottom: 1px solid #262936;
+      scrollbar-width: none;
+    }
+    .chip {
+      background: #25293a;
+      color: var(--text);
+      border: 1px solid #353b50;
+      padding: 5px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .chip.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; }
+    .search-bar {
+      padding: 6px 10px;
+      border-bottom: 1px solid #262936;
+    }
+    .search-bar input {
+      width: 100%;
+      background: #12141c;
+      border: 1px solid #2f354a;
+      color: #fff;
+      padding: 7px 10px;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+    #poi-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .poi-item {
+      background: #222634;
+      border: 1px solid #2f3548;
+      border-radius: 10px;
+      padding: 8px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .poi-info h4 { font-size: 14px; margin-bottom: 2px; }
+    .poi-info p { font-size: 11px; color: var(--muted); }
+    .user-dot {
+      width: 18px;
+      height: 18px;
+      background: #3b82f6;
+      border: 3px solid #fff;
+      border-radius: 50%;
+      box-shadow: 0 0 12px rgba(59,130,246,0.9);
+      position: relative;
+    }
+    .heading-cone {
+      position: absolute;
+      top: -18px;
+      left: -9px;
+      width: 30px;
+      height: 30px;
+      background: radial-gradient(circle, rgba(59,130,246,0.55) 0%, rgba(59,130,246,0) 70%);
+      clip-path: polygon(50% 50%, 0% 0%, 100% 0%);
+      transform-origin: 50% 50%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span id="gps-dot" class="status-dot"></span>
+    <span>🎃 Liseberg Live GPS</span>
+  </div>
+  <div class="top-actions">
+    <button id="btn-gps" class="btn primary" onclick="startLiveGPS()">📍 Starta Live-GPS</button>
+    <button id="btn-compass" class="btn" onclick="enableCompass()">🧭 Kompass</button>
+  </div>
+</header>
+
+<div id="nav-banner">
+  <div class="nav-main">
+    <div>
+      <div class="nav-step" id="nav-instruction">Beräknar gångväg...</div>
+      <div class="nav-sub" id="nav-subtext">Följ den orangea linjen</div>
+    </div>
+    <div class="nav-metrics">
+      <div class="nav-dist" id="nav-dist">-- m</div>
+      <div class="nav-eta" id="nav-eta">-- min</div>
+    </div>
+  </div>
+  <div style="margin-top:8px; display:flex; gap:6px;">
+    <button class="btn" onclick="simulateWalk()">🚶‍♂️ Simulera promenad</button>
+    <button class="btn" onclick="clearRoute()">✖ Avbryt</button>
+  </div>
+</div>
+
+<div id="map-wrap">
+  <div id="map"></div>
+  <div class="map-floating">
+    <button class="btn" onclick="centerOnUser()">🎯 Min plats</button>
+    <button class="btn" onclick="resetParkView()">🎡 Hela parken</button>
+  </div>
+</div>
+
+<div id="drawer">
+  <div class="filters" id="category-chips">
+    <button class="chip active" data-cat="all">Alla</button>
+    <button class="chip" data-cat="horror">🏚️ Skräckhus</button>
+    <button class="chip" data-cat="scarezone">💀 Skräckområden</button>
+    <button class="chip" data-cat="ride">🎢 Attraktioner</button>
+    <button class="chip" data-cat="kids">🍬 Barn / Kaninlandet</button>
+    <button class="chip" data-cat="service">🚻 Entré & Service</button>
+  </div>
+  <div class="search-bar">
+    <input type="text" id="search" placeholder="Sök skräckhus, attraktion, entré..." oninput="renderPOIList()" />
+  </div>
+  <div id="poi-list"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const POIS = [
+    // Halloween - Skräckhus
+    { id: "skogen", name: "Skogen (Skräckhus)", cat: "horror", lat: 57.6946, lng: 11.9949, desc: "Mörk skogsvandring vid FlumeRide/Kållerado" },
+    { id: "smittharden", name: "Smitthärden (Skräckhus)", cat: "horror", lat: 57.6926, lng: 11.9958, desc: "Karantänzon i södra parken (Distrikt Z)" },
+    { id: "vinden", name: "Vinden (Skräckhus)", cat: "horror", lat: 57.6953, lng: 11.9922, desc: "Klaustrofobisk vind ovanför Gasten" },
+    { id: "kvarteret", name: "Kvarteret / Köpmanhuset", cat: "horror", lat: 57.6951, lng: 11.9918, desc: "Skräckhus i Hamnområdet" },
+    { id: "gasten", name: "Spökhotellet Gasten", cat: "horror", lat: 57.6952, lng: 11.9920, desc: "Klassiskt spökhotell i Hamnområdet" },
+    // Halloween - Skräckområden
+    { id: "distriktz", name: "Distrikt Z (Skräckområde)", cat: "scarezone", lat: 57.6929, lng: 11.9955, desc: "Zombier vid Balder/Loke" },
+    { id: "cirkusbisarr", name: "Cirkus Bisarr (Skräckområde)", cat: "scarezone", lat: 57.6950, lng: 11.9924, desc: "Vridna clowner i Hamnområdet" },
+    { id: "dimmornasdal", name: "Dimmornas Dal (Skräckområde)", cat: "scarezone", lat: 57.6943, lng: 11.9915, desc: "Dimma och väsen uppe på Lisebergsberget" },
+    // Attraktioner
+    { id: "helix", name: "Helix", cat: "ride", lat: 57.6942, lng: 11.9912, desc: "Berg- och dalbana på toppen av berget" },
+    { id: "valkyria", name: "Valkyria", cat: "ride", lat: 57.6934, lng: 11.9950, desc: "Dive coaster med fritt fall" },
+    { id: "balder", name: "Balder", cat: "ride", lat: 57.6925, lng: 11.9957, desc: "Klassisk berg- och dalbana i trä" },
+    { id: "loke", name: "Loke", cat: "ride", lat: 57.6930, lng: 11.9953, desc: "Gigantisk roterande pendel" },
+    { id: "atmosfear", name: "AtmosFear", cat: "ride", lat: 57.6947, lng: 11.9908, desc: "Fritt fall-torn på berget" },
+    { id: "lisebergshjulet", name: "Lisebergshjulet", cat: "ride", lat: 57.6955, lng: 11.9907, desc: "Pariserhjul med utsikt över Göteborg" },
+    // Barn / Halloween
+    { id: "kaninlandet", name: "Kaninlandet & Bus eller Godis", cat: "kids", lat: 57.6961, lng: 11.9922, desc: "Familjevänligt Halloween-område" },
+    { id: "krakslottet", name: "Kråkslottet", cat: "kids", lat: 57.6959, lng: 11.9927, desc: "Lagom läskigt för yngre besökare" },
+    // Entré & Service
+    { id: "norra_entren", name: "Huvudentrén (Norra)", cat: "service", lat: 57.6969, lng: 11.9914, desc: "Korsvägen / Huvudingång" },
+    { id: "sodra_entren", name: "Södra Entrén", cat: "service", lat: 57.6918, lng: 11.9959, desc: "Utgång/Ingång mot Mölndalsvägen" },
+    { id: "rulltrappan", name: "Rulltrappan till Berget", cat: "service", lat: 57.6950, lng: 11.9916, desc: "Tar dig upp till Helix & AtmosFear" }
+  ];
+
+  // Inbyggt gångvägsnät (Fallback om API blockeras)
+  const WALK_NODES = {
+    n_north: [57.6969, 11.9914],
+    n_kanin: [57.6960, 11.9922],
+    n_hamn: [57.6951, 11.9921],
+    n_escalator_bot: [57.6950, 11.9916],
+    n_mountain_top: [57.6944, 11.9911],
+    n_bridge_mid: [57.6943, 11.9938],
+    n_east_river: [57.6945, 11.9948],
+    n_valkyria: [57.6934, 11.9949],
+    n_loke: [57.6929, 11.9954],
+    n_balder: [57.6924, 11.9957],
+    n_south: [57.6918, 11.9959]
+  };
+  const WALK_EDGES = [
+    ["n_north", "n_kanin"], ["n_kanin", "n_hamn"], ["n_hamn", "n_escalator_bot"],
+    ["n_escalator_bot", "n_mountain_top"], ["n_hamn", "n_bridge_mid"],
+    ["n_bridge_mid", "n_east_river"], ["n_bridge_mid", "n_valkyria"],
+    ["n_east_river", "n_valkyria"], ["n_valkyria", "n_loke"],
+    ["n_loke", "n_balder"], ["n_balder", "n_south"]
+  ];
+
+  let map, userMarker, accuracyCircle, routeLine, targetPOI = null;
+  let userPos = { lat: 57.6969, lng: 11.9914, isLive: false };
+  let watchId = null, simTimer = null, currentRouteCoords = [];
+  let activeCategory = "all", followUser = true;
+
+  function init() {
+    map = L.map("map", { zoomControl: false }).setView([57.6947, 11.9935], 16);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19, attribution: "© OpenStreetMap"
+    }).addTo(map);
+
+    map.on("dragstart", () => { followUser = false; });
+
+    updateUserMarker();
+    renderMarkers();
+    renderPOIList();
+
+    document.querySelectorAll(".chip").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".chip").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        activeCategory = btn.dataset.cat;
+        renderPOIList();
+      });
+    });
+  }
+
+  function updateUserMarker(accuracy = 8) {
+    const icon = L.divIcon({
+      className: "",
+      html: `<div class="user-dot"><div id="cone" class="heading-cone" style="display:none;"></div></div>`,
+      iconSize: [18, 18],
+      iconAnchor: [9, 9]
+    });
+    if (!userMarker) {
+      userMarker = L.marker([userPos.lat, userPos.lng], { icon, zIndexOffset: 1000 }).addTo(map);
+      accuracyCircle = L.circle([userPos.lat, userPos.lng], { radius: accuracy, color: "#3b82f6", weight: 1, fillOpacity: 0.15 }).addTo(map);
+    } else {
+      userMarker.setLatLng([userPos.lat, userPos.lng]);
+      accuracyCircle.setLatLng([userPos.lat, userPos.lng]).setRadius(accuracy);
+    }
+  }
+
+  function startLiveGPS() {
+    if (!navigator.geolocation) {
+      alert("Din webbläsare stöder inte GPS.");
+      return;
+    }
+    const btn = document.getElementById("btn-gps");
+    btn.textContent = "⏳ Söker GPS...";
+
+    if (watchId) navigator.geolocation.clearWatch(watchId);
+
+    watchId = navigator.geolocation.watchPosition(
+      pos => {
+        userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude, isLive: true };
+        document.getElementById("gps-dot").classList.add("live");
+        btn.textContent = "🟢 Live-GPS Aktiv";
+        btn.classList.add("active");
+        updateUserMarker(pos.coords.accuracy || 10);
+        if (followUser) map.panTo([userPos.lat, userPos.lng]);
+        if (targetPOI) updateLiveNavigationProgress();
+        renderPOIList();
+      },
+      err => {
+        btn.textContent = "⚠️ GPS Nekad";
+        alert("Kunde inte läsa GPS (" + err.message + "). Kontrollera att du öppnat sidan i vanliga Safari över HTTPS och tillåtit Platstjänster.");
+      },
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
+    );
+  }
+
+  async function enableCompass() {
+    if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+      try {
+        const res = await DeviceOrientationEvent.requestPermission();
+        if (res === "granted") {
+          window.addEventListener("deviceorientation", handleOrientation, true);
+          document.getElementById("btn-compass").classList.add("active");
+        }
+      } catch (e) {
+        alert("Kunde inte aktivera kompass i denna vy.");
+      }
+    } else {
+      window.addEventListener("deviceorientation", handleOrientation, true);
+      document.getElementById("btn-compass").classList.add("active");
+    }
+  }
+
+  function handleOrientation(e) {
+    const heading = e.webkitCompassHeading || (e.alpha ? 360 - e.alpha : null);
+    const cone = document.getElementById("cone");
+    if (cone && heading !== null) {
+      cone.style.display = "block";
+      cone.style.transform = `rotate(${heading}deg)`;
+    }
+  }
+
+  function haversine(lat1, lon1, lat2, lon2) {
+    const R = 6371000, toRad = x => x * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  function renderMarkers() {
+    POIS.forEach(p => {
+      const m = L.circleMarker([p.lat, p.lng], {
+        radius: 8,
+        fillColor: p.cat === "horror" ? "#ef4444" : p.cat === "scarezone" ? "#a855f7" : "#ff6b00",
+        color: "#fff",
+        weight: 2,
+        fillOpacity: 0.95
+      }).addTo(map);
+      m.bindPopup(`<b>${p.name}</b><br><small>${p.desc}</small><br><button onclick="navigateTo('${p.id}')" style="margin-top:6px;padding:4px 8px;background:#ff6b00;border:none;border-radius:4px;font-weight:bold;cursor:pointer;">Gå hit</button>`);
+    });
+  }
+
+  function renderPOIList() {
+    const q = document.getElementById("search").value.toLowerCase();
+    const list = document.getElementById("poi-list");
+    list.innerHTML = "";
+    POIS
+      .filter(p => (activeCategory === "all" || p.cat === activeCategory) && (p.name.toLowerCase().includes(q) || p.desc.toLowerCase().includes(q)))
+      .map(p => ({ ...p, dist: Math.round(haversine(userPos.lat, userPos.lng, p.lat, p.lng)) }))
+      .sort((a, b) => a.dist - b.dist)
+      .forEach(p => {
+        const div = document.createElement("div");
+        div.className = "poi-item";
+        div.innerHTML = `
+          <div class="poi-info">
+            <h4>${p.name}</h4>
+            <p>${p.desc} • <b>${p.dist} m</b></p>
+          </div>
+          <button class="btn primary" onclick="navigateTo('${p.id}')">Gå hit</button>
+        `;
+        list.appendChild(div);
+      });
+  }
+
+  async function navigateTo(id) {
+    if (simTimer) { clearInterval(simTimer); simTimer = null; }
+    targetPOI = POIS.find(p => p.id === id);
+    if (!targetPOI) return;
+
+    document.getElementById("nav-banner").style.display = "block";
+    document.getElementById("nav-instruction").textContent = `Beräknar gångväg till ${targetPOI.name}...`;
+
+    try {
+      const url = `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${userPos.lng},${userPos.lat};${targetPOI.lng},${targetPOI.lat}?overview=full&geometries=geojson&steps=true`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.routes && data.routes[0]) {
+        currentRouteCoords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+        drawRoute(currentRouteCoords);
+        updateLiveNavigationProgress();
+        return;
+      }
+    } catch (e) {}
+
+    // Fallback Dijkstra
+    currentRouteCoords = computeFallbackRoute([userPos.lat, userPos.lng], [targetPOI.lat, targetPOI.lng]);
+    drawRoute(currentRouteCoords);
+    updateLiveNavigationProgress();
+  }
+
+  function computeFallbackRoute(start, end) {
+    const keys = Object.keys(WALK_NODES);
+    const nearest = pt => keys.reduce((best, k) => haversine(pt[0], pt[1], WALK_NODES[k][0], WALK_NODES[k][1]) < haversine(pt[0], pt[1], WALK_NODES[best][0], WALK_NODES[best][1]) ? k : best, keys[0]);
+    const sKey = nearest(start), eKey = nearest(end);
+    const dist = {}, prev = {}, Q = new Set(keys);
+    keys.forEach(k => dist[k] = Infinity);
+    dist[sKey] = 0;
+
+    while (Q.size) {
+      let u = [...Q].reduce((a, b) => dist[a] < dist[b] ? a : b);
+      Q.delete(u);
+      if (u === eKey) break;
+      WALK_EDGES.forEach(([a, b]) => {
+        const v = a === u ? b : b === u ? a : null;
+        if (v && Q.has(v)) {
+          const alt = dist[u] + haversine(WALK_NODES[u][0], WALK_NODES[u][1], WALK_NODES[v][0], WALK_NODES[v][1]);
+          if (alt < dist[v]) { dist[v] = alt; prev[v] = u; }
+        }
+      });
+    }
+    const path = [];
+    let curr = eKey;
+    while (curr) { path.unshift(WALK_NODES[curr]); curr = prev[curr]; }
+    return [start, ...path, end];
+  }
+
+  function drawRoute(coords) {
+    if (routeLine) map.removeLayer(routeLine);
+    routeLine = L.polyline(coords, { color: "#ff6b00", weight: 6, opacity: 0.95 }).addTo(map);
+    map.fitBounds(routeLine.getBounds(), { padding: [40, 40] });
+  }
+
+  function updateLiveNavigationProgress() {
+    if (!targetPOI) return;
+    const totalDist = Math.round(haversine(userPos.lat, userPos.lng, targetPOI.lat, targetPOI.lng));
+    const mins = Math.max(1, Math.round(totalDist / 75));
+    document.getElementById("nav-dist").textContent = `${totalDist} m`;
+    document.getElementById("nav-eta").textContent = `ca ${mins} min gång`;
+
+    if (totalDist < 18) {
+      document.getElementById("nav-instruction").textContent = `🎉 Du är framme vid ${targetPOI.name}!`;
+      document.getElementById("nav-subtext").textContent = targetPOI.desc;
+    } else {
+      document.getElementById("nav-instruction").textContent = `Gå mot ${targetPOI.name}`;
+      document.getElementById("nav-subtext").textContent = `Följ den markerade gångvägen (${totalDist} m kvar)`;
+    }
+  }
+
+  function simulateWalk() {
+    if (!currentRouteCoords || currentRouteCoords.length < 2) return;
+    if (simTimer) clearInterval(simTimer);
+    let idx = 0;
+    simTimer = setInterval(() => {
+      if (idx >= currentRouteCoords.length) {
+        clearInterval(simTimer);
+        return;
+      }
+      userPos.lat = currentRouteCoords[idx][0];
+      userPos.lng = currentRouteCoords[idx][1];
+      updateUserMarker(5);
+      map.panTo([userPos.lat, userPos.lng]);
+      updateLiveNavigationProgress();
+      idx++;
+    }, 700);
+  }
+
+  function clearRoute() {
+    if (simTimer) clearInterval(simTimer);
+    if (routeLine) map.removeLayer(routeLine);
+    targetPOI = null;
+    document.getElementById("nav-banner").style.display = "none";
+  }
+
+  function centerOnUser() {
+    followUser = true;
+    map.setView([userPos.lat, userPos.lng], 18);
+  }
+
+  function resetParkView() {
+    followUser = false;
+    map.setView([57.6947, 11.9935], 16);
+  }
+
+  window.onload = init;
+</script>
+</body>
+</html>
